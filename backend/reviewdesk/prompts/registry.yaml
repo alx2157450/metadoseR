@@ -1,0 +1,534 @@
+# Prompt 注册表（规范 9.6 / 附录 A）
+# - 语义化版本号；AI 调用日志记录 "编号@版本"
+# - 用户内容一律用 {{参数}} 占位，禁止在模板中写死题目
+# - 机器处理的输出使用 schema 约束并自动校验，失败自动重试一次，仍失败转人工
+# - min_level：导师设定的 AI 介入上限至少为该级别时才开放
+# - 分类、抽取与核查类任务温度为 0
+
+common_constraint: "仅依据所给材料作答；材料不足以判断或不确定时，明确写“无法判断”或“需核实”，不要编造文献、数据或 MeSH 词。"
+
+prompts:
+  P01:
+    name: 题目解构
+    version: 1.0.0
+    stage: 1
+    min_level: L1
+    output: markdown
+    temperature: 0.2
+    params: [discipline, mentor_topic, background, seeds]
+    changelog: "v2.0 新增"
+    template: |
+      角色：你是{{discipline}}领域的资深研究者，正在帮助一名研究生理解导师布置的综述题目。
+      导师原题：{{mentor_topic}}
+      命题背景：{{background}}
+      种子文献（如有）：{{seeds}}
+      任务：
+      1. 将题目拆解为 2–4 个核心概念。机制类题目按“B 核心对象—C 具体过程/现象—A 情境/条件”拆解；临床类题目按 PICO 或 PEO 拆解。
+      2. 为每个概念列出：常用英文术语、同义词与缩写、对应的 MeSH 主题词（不确定时标注“待在 MeSH Database 核实”，不要编造）。
+      3. 指出题目中的隐含假设和不同理解方式（至少 3 个歧义点）。
+      4. 给出题目的默认边界建议：建议纳入什么、排除什么，并说明理由。
+      输出：概念表（Markdown 表格）+ 歧义点列表 + 边界建议。
+      约束：只做拆解与澄清，不要改变、替换或“优化”导师的题目。
+
+  P02:
+    name: 向导师确认的问题清单
+    version: 1.0.0
+    stage: 1
+    min_level: L1
+    output: markdown
+    temperature: 0.2
+    params: [decomposition]
+    template: |
+      以下是题目解构结果（概念表与歧义点）：
+      {{decomposition}}
+      基于上述概念表和歧义点，为我生成一份 10 分钟内可以和导师讨论完的问题清单。
+      要求：
+      1. 不超过 8 个问题，按对后续工作量和方向的影响从大到小排序；
+      2. 每个问题给出 2–3 个备选答案，便于导师直接选择，并说明不同选择对检索范围和工作量的影响；
+      3. 必须覆盖：综述类型与用途、侧重机制还是临床转化、是否纳入动物/细胞研究、时间范围、目标期刊或篇幅。
+
+  P03:
+    name: 领域摸底分析
+    version: 1.0.0
+    stage: 1
+    min_level: L1
+    output: markdown
+    temperature: 0.2
+    params: [mentor_topic, years, n, reviews, trend]
+    template: |
+      以下是导师题目“{{mentor_topic}}”下的摸底检索结果：近{{years}}年综述的标题、年份、期刊和摘要（共 {{n}} 篇，已编号），以及年度发文量统计。
+      【综述题录】
+      {{reviews}}
+      【年度发文量】
+      {{trend}}
+      请在不改变题目的前提下分析：
+      1. 该题目下研究的发展脉络与当前热点（按时间段归纳，每一点注明依据的文献编号）；
+      2. 已有综述主要覆盖了哪些子问题，覆盖密度如何；
+      3. 刚进入该方向的研究生必须掌握的核心概念、关键通路或模型、常用研究方法；
+      4. 分别标注哪些判断直接来自所给数据，哪些是你的推测。
+
+  P04:
+    name: 同题综述重叠分析
+    version: 1.0.0
+    stage: 1
+    min_level: L1
+    output: markdown
+    temperature: 0.2
+    params: [mentor_topic, core_questions, reviews]
+    template: |
+      以下是近 3 年与导师题目“{{mentor_topic}}”高度相关的已发表综述（标题、期刊、年份、摘要或目录）：
+      {{reviews}}
+      我的《综述任务书》核心问题为：{{core_questions}}
+      请逐篇说明：①核心论点与覆盖范围；②与我的核心问题的重叠程度（高/中/低）及具体重叠点；③它没有覆盖或覆盖不足的方面。
+      最后汇总：按当前任务书写作，与已有综述的主要重叠风险在哪里，最需要避免的写法是什么。
+      只依据所给材料作答；材料不足以判断时写“无法判断”。
+
+  P05:
+    name: 切入角度建议（题目内约束版）
+    version: 1.0.0
+    stage: 1
+    min_level: L1
+    output: markdown
+    temperature: 0.4
+    params: [mentor_topic, boundaries, p03, p04, deadline, lab_direction]
+    template: |
+      背景：导师给定题目为“{{mentor_topic}}”，已确认边界为：{{boundaries}}。题目不能更改，只能在其范围内选择切入角度。
+      材料：
+      【P03 领域摸底分析结果】
+      {{p03}}
+      【P04 同题综述重叠分析结果】
+      {{p04}}
+      请提出 3–5 个切入角度，每个角度包括：
+      1. 工作标题（中英文）；
+      2. 与已有综述的差异点（引用 P04 的具体结论）；
+      3. 支撑文献量估计及依据（检索式与命中数）；
+      4. 章节雏形（3–5 个一级标题）；
+      5. 对研究生而言的难度与风险（在{{deadline}}内完成的可行性）；
+      6. 与课题组{{lab_direction}}的衔接价值。
+      不要提出超出题目边界的方向。若你认为题目本身存在问题，单独列在最后的“供导师参考”部分。
+
+  P06:
+    name: PubMed 检索式生成（修正版）
+    version: 1.1.0
+    stage: 2
+    min_level: L0
+    output: json
+    temperature: 0
+    params: [mentor_topic, concepts]
+    schema:
+      type: object
+      required: [query, groups]
+      properties:
+        query: {type: string}
+        groups:
+          type: array
+          items:
+            type: object
+            required: [concept]
+            properties:
+              concept: {type: string}
+              mesh: {type: array}
+              free_terms: {type: array}
+              note: {type: string}
+        risks: {type: array}
+    template: |
+      我正在为导师题目“{{mentor_topic}}”撰写综述，需要一个可以直接粘贴到 PubMed 高级检索框的检索式。
+      核心概念（来自《综述任务书》）：{{concepts}}
+      要求：
+      1. 每个概念构建一个语义群：MeSH 主题词（[Mesh]）+ 自由词（[tiab]），组内用 OR 连接，概念之间用 AND 连接；
+      2. 自由词覆盖同义词、缩写、英美拼写变体；截词用 *（前缀至少 4 个字符）；PubMed 不支持 ? 通配符，变体请用 OR 列出；
+      3. 多词术语可使用邻近检索 "词1 词2"[tiab:~N]（N 取 2–5），邻近检索的引号内不得使用截词；
+      4. 如需排除明显无关的文献，只在标题层面使用 NOT（[ti]），并逐条说明理由；
+      5. 不加年份、文献类型和语言限制；
+      6. 不确定是否存在的 MeSH 词请标注“需在 MeSH Database 核实”；
+      7. 输出 JSON：{"query": 完整检索式（单行）, "groups": [{"concept", "mesh": [], "free_terms": [], "note"}], "risks": [可能的漏检与误检风险]}。
+
+  P07:
+    name: 多数据库与知网检索式转换
+    version: 1.0.0
+    stage: 2
+    min_level: L0
+    output: json
+    temperature: 0
+    params: [target_db, pubmed_query]
+    schema:
+      type: object
+      required: [database, query]
+      properties:
+        database: {type: string}
+        query: {type: string}
+        unmapped: {type: array}
+        notes: {type: string}
+    template: |
+      请将以下 PubMed 检索式转换为 {{target_db}} 语法：
+      {{pubmed_query}}
+      要求：
+      1. MeSH 词转换为目标库的受控词（Embase 用 Emtree）；知网无对应受控词时，用“主题（SU）”或“篇关摘（TKA）”字段，并补充中文同义词和常见译名；
+      2. 字段与邻近算符按目标库规则改写（Scopus：TITLE-ABS-KEY、W/n；WoS：TS=、NEAR/n；Embase.com：:ti,ab、NEAR/n；知网：SU=、TKA=、TI=）；
+      3. 列出无法一一对应的部分及处理方式；
+      4. 提醒我在目标库中试检，并记录检索日期与命中数。
+      输出 JSON：{"database", "query", "unmapped": [], "notes"}。
+
+  P08:
+    name: 矩阵式检索计划
+    version: 1.0.0
+    stage: 2
+    min_level: L0
+    output: markdown
+    temperature: 0.2
+    params: [core_questions]
+    template: |
+      检索目标：{{core_questions}}
+      请按角色分配框架分析：角色 B（核心对象）、角色 A（情境/条件）、角色 C（具体过程/现象），每个角色列出 3–8 个具体的名词实体或过程性词汇（遵循实体原则和具体性原则）。
+      然后生成四阶段矩阵式检索行动计划：路径 1：B；路径 2a：B+A；路径 2b：B+C；路径 3：B+A+C；路径 4：A+C+B 的上位概念。
+      每条路径给出 PubMed 检索式（语法要求同 P06，不加年份和文献类型限制），并说明该路径的战略意图和预计命中规模。
+
+  P09:
+    name: 误检诊断与检索式优化
+    version: 1.0.0
+    stage: 2
+    min_level: L0
+    output: markdown
+    temperature: 0
+    params: [goal, query, n, sample, seed_pmids]
+    template: |
+      检索目标：{{goal}}
+      检索式：{{query}}
+      以下是随机抽取的 {{n}} 条检索结果（编号、标题、摘要），我已标注相关（Y）/ 不相关（N）：
+      {{sample}}
+      请：
+      1. 对标注为 N 的文献逐条分析被检入的原因（由哪个检索词、哪个字段触发）；
+      2. 归纳误检模式，给出修改方案（修改前 / 修改后对照）；
+      3. 评估修改是否可能导致漏检：逐篇说明修改后的检索式仍能命中种子文献 {{seed_pmids}} 的依据（命中了哪个检索词）。
+
+  P10:
+    name: 题录预筛与相关性分级
+    version: 1.2.0
+    stage: 3
+    min_level: L1
+    output: json
+    temperature: 0
+    params: [working_title, include, exclude, records, n]
+    schema:
+      type: array
+      items:
+        type: object
+        required: [id, level, decision, reason, evidence_quote]
+        properties:
+          id: {type: [string, integer]}
+          level: {enum: [A, B, C, D, U]}
+          decision: {enum: [include, exclude, uncertain]}
+          reason: {type: string}
+          evidence_quote: {type: string}
+          key_finding: {type: string}
+          sections: {type: array}
+    template: |
+      角色：你是协助研究生筛选文献的助手，你的每一条判断都将由研究生复核。
+      写作主题：{{working_title}}
+      纳入标准：{{include}}　排除标准：{{exclude}}
+      待分析题录（本批 {{n}} 条）：
+      {{records}}
+      对每条题录输出：
+      1. 相关性等级：A 核心相关——主要研究内容就是写作主题；B 间接相关 / 可作支撑——可支撑写作主题中的某个论点；C 关联较低 / 仅供参考——仅提及主题，没有实质分析或新数据；D 无关——与主题无关；U 信息不足——摘要缺失或信息不足以判断（必须交人工）。
+      2. 纳入建议：include / exclude / uncertain，并对照纳入排除标准说明理由；
+      3. 依据句：摘录摘要中的原句（不超过 30 词），不得使用摘要以外的信息；
+      4. 关键信息：1–2 句话概括与主题相关的发现（D 级可省略）；
+      5. 建议归属的大纲章节（如已有大纲）。
+      输出格式：JSON 数组，按题录编号排序，字段为 id, level, decision, reason, evidence_quote, key_finding, sections。
+      原则：宁可保留弱关联（给 C 而不是 D），拿不准时给 U；你的输出是建议，不是最终决定。
+
+  P11:
+    name: 全文证据卡抽取
+    version: 1.2.0
+    stage: 4
+    min_level: L1
+    output: json
+    temperature: 0
+    params: [working_title, outline, citekey, fulltext]
+    schema:
+      type: array
+      items:
+        type: object
+        required: [claim, quote, location]
+        properties:
+          claim: {type: string}
+          evidence_type: {type: string}
+          model_or_population: {type: string}
+          quantitative: {type: string}
+          quote: {type: string}
+          location: {type: string}
+          limitations: {type: string}
+          outline_nodes: {type: array}
+          secondary: {type: boolean}
+    template: |
+      你将阅读一篇文献（{{citekey}}）的结构化全文（按章节给出，每段带段落编号）。写作主题：{{working_title}}；当前大纲：{{outline}}。
+      【全文】
+      {{fulltext}}
+      请抽取与写作主题相关的证据卡，每张卡包括：
+      - claim：一句话陈述该文献的一个具体发现，保持原文的限定程度，不得加强或泛化；
+      - evidence_type：human / clinical_trial / animal / cell / computational / review（人群研究 / 临床试验 / 动物实验 / 细胞实验 / 计算研究 / 综述观点）；
+      - model_or_population：物种、模型、样本量、干预与对照；
+      - quantitative：关键数值原样摘录；
+      - quote 与 location：支持该发现的原文句子（逐字）及段落编号（如 p12）；
+      - limitations：作者自述或明显的局限；
+      - outline_nodes：与哪个大纲节点相关。
+      规则：只能依据给出的全文；没有数据就留空，不要推测；若本文是综述，转述他人结论时标注 secondary=true 并记录其原始文献。
+      输出：JSON 数组。
+
+  P12:
+    name: 证据地图与大纲对照
+    version: 1.0.0
+    stage: 4
+    min_level: L1
+    output: markdown
+    temperature: 0.2
+    params: [outline, cards, min_cards]
+    template: |
+      角色：经验丰富的综述审稿人。
+      输入：①学生独立撰写的大纲（含各节核心论点）：
+      {{outline}}
+      ②已人工核对的证据卡（ID、claim、evidence_type、outline_nodes、文献等级）：
+      {{cards}}
+      任务：
+      1. 将每张证据卡映射到学生大纲中最相关的一个或多个二级节点，在节点后注明“（证据卡 X 张，其中 A 级文献 a 篇）”；
+      2. 标出证据不足的节点（少于 {{min_cards}} 张卡或缺少 A 级证据），给出处理建议：合并、提升概括性、补充检索（给出检索词），或作为“研究空白”写入展望；
+      3. 列出未被任何节点覆盖但数量较多的证据簇，说明它们可能对应的遗漏主题，并判断是否在任务书边界内；
+      4. 标出同一节点内结论相互矛盾的证据卡，说明可能的来源（模型、剂量、时间点、测量方法、人群差异等）；
+      5. 对大纲结构提出不超过 5 条修改建议，每条说明理由。
+      不要重写整个大纲；是否采纳由学生决定。输出：Markdown 层级列表 + 问题清单。
+
+  P13:
+    name: 多视角提问
+    version: 1.0.0
+    stage: 4
+    min_level: L1
+    output: markdown
+    temperature: 0.4
+    params: [working_title, outline, extra_view]
+    template: |
+      写作主题：{{working_title}}；学生大纲：
+      {{outline}}
+      请分别以以下读者的视角，各提出 5 个他们读这篇综述时最希望得到回答的问题：
+      ①临床医生；②基础机制研究者；③药物研发人员；④目标期刊审稿人；⑤{{extra_view}}。
+      然后逐一检查：哪些问题在学生大纲中已有对应章节，哪些没有。对未覆盖的问题，判断其是否在任务书边界内、是否值得纳入。
+
+  P14:
+    name: 章节证据分析与段落规划
+    version: 1.0.0
+    stage: 5
+    min_level: L1
+    output: markdown
+    temperature: 0.2
+    params: [outline, section, cards]
+    template: |
+      角色：严谨的学术期刊审稿人。
+      【完整大纲】{{outline}}
+      【目标章节】{{section}}
+      【章节证据卡】
+      {{cards}}
+      第一步：用两三句话说明你对目标章节在全文中作用的理解，以及它与前后章节的分工。
+      第二步：逐张处理证据卡（不得跳过），生成表格：证据卡 ID｜与目标章节的关联（直接/间接，说明如何支撑）｜可引用的关键证据（原样摘录）｜与其他证据卡一致或矛盾之处。
+      第三步：提出段落规划（只列要点，不写成段落）：每段的核心论点（一句话）、支撑证据卡 ID、证据强度（证据类型与一致性）、需要讨论的矛盾点。
+         合并 / 拆分规则：少于 3 张卡的相邻论点考虑合并；超过 8 张卡的论点考虑拆分为有递进关系的子段；独特的 1–2 张卡可独立成段。
+      第四步：自检——列出已使用的全部证据卡 ID，以及未使用的证据卡及原因。
+
+  P15:
+    name: 草稿批判性审阅
+    version: 1.1.0
+    stage: 5
+    min_level: L2
+    output: json
+    temperature: 0
+    params: [journal, sentences, cards]
+    schema:
+      type: object
+      required: [comments]
+      properties:
+        comments:
+          type: array
+          items:
+            type: object
+            required: [sentence, issue, direction]
+            properties:
+              sentence: {type: [integer, "null"]}
+              category: {type: string}
+              issue: {type: string}
+              direction: {type: string}
+        top3: {type: array}
+    template: |
+      角色：{{journal}} 的资深审稿人。以下是研究生本人撰写的段落草稿（句子已编号），以及该段引用的证据卡（含原文引句）。
+      【段落草稿】
+      {{sentences}}
+      【证据卡】
+      {{cards}}
+      请只做审阅，不要重写段落。逐条指出：
+      1. 论点是否清晰，本段是否只讲一件事；
+      2. 每个事实性陈述是否有证据卡支持；是否存在过度概括（把动物实验结论写成人体结论、把相关写成因果、把单项研究写成共识）；
+      3. 是否遗漏证据卡中的重要矛盾或局限；
+      4. 与前后段落的衔接问题；
+      5. 用词与语气是否符合学术规范（指出具体句子）。
+      每条意见给出：位置（句号）、问题、修改方向（用提问或提示的方式，不替写句子）。最后列出 3 条最优先的修改建议。
+      输出 JSON：{"comments": [{"sentence", "category", "issue", "direction"}], "top3": []}。
+
+  P16:
+    name: 段落论证骨架
+    version: 1.1.0
+    stage: 5
+    min_level: L2
+    output: json
+    temperature: 0.2
+    params: [n, thesis, cards]
+    schema:
+      type: object
+      required: [points]
+      properties:
+        points:
+          type: array
+          items:
+            type: object
+            required: [text]
+            properties:
+              text: {type: string}
+              card_ids: {type: array}
+        order: {type: string}
+        rationale: {type: string}
+        author_judgment: {type: string}
+    template: |
+      针对段落规划中的第 {{n}} 段（核心论点：{{thesis}}），证据卡如下：
+      {{cards}}
+      请给出论证骨架：
+      - 3–5 个要点，每个要点不超过 15 个词，只写“要说什么”，不要写成完整句子；
+      - 每个要点标注对应的证据卡 ID；
+      - 给出一个推理顺序（如：现象 → 机制 → 矛盾 → 意义），并说明理由；
+      - 指出一处最值得作者加入自己判断的地方（例如比较不同模型结果差异的原因）。
+      不要输出完整段落。
+      输出 JSON：{"points": [{"text", "card_ids": []}], "order", "rationale", "author_judgment"}。
+
+  P17:
+    name: 范文结构分析
+    version: 1.0.0
+    stage: 5
+    min_level: L1
+    output: markdown
+    temperature: 0.2
+    params: [journal, part, text]
+    template: |
+      以下是一篇与我的题目相关、发表在 {{journal}} 的综述的 {{part}} 部分：
+      {{text}}
+      请分析其段落结构：每段的功能（背景、问题、缺口、本文贡献、总结、展望等）、段落之间的过渡方式、论证密度（每段引用数量）、展望部分的具体程度。
+      然后总结 3–5 条我写同类部分时可以借鉴的结构规律。不要摘抄原句。
+
+  P18:
+    name: 写作六维评价
+    version: 1.0.0
+    stage: 5
+    min_level: L2
+    output: markdown
+    temperature: 0
+    params: [section, text]
+    template: |
+      以下是我的 {{section}}：
+      {{text}}
+      请按以下六个维度评价，每个维度给出等级（好 / 较好 / 中等 / 较差 / 差）、理由（指向具体句子）和一条改进建议：
+      1. 背景与重要性交代；2. 问题与缺口界定；3. 证据综合的深度（是比较与整合，还是罗列）；4. 批判性与争议处理；5. 逻辑结构与衔接；6. 结论与展望的具体性和可检验性。
+      以表格输出。不要重写原文。
+
+  P19:
+    name: 断言—引文核查
+    version: 1.1.0
+    stage: 6
+    min_level: L1
+    output: json
+    temperature: 0
+    params: [sentences, sources]
+    schema:
+      type: object
+      required: [claims]
+      properties:
+        claims:
+          type: array
+          items:
+            type: object
+            required: [claim, citekey, verdict]
+            properties:
+              sentence: {type: [integer, "null"]}
+              claim: {type: string}
+              citekey: {type: string}
+              verdict: {enum: [strong, partial, none, undetermined, na]}
+              quote: {type: string}
+              location: {type: string}
+              note: {type: string}
+              suggestion: {type: string}
+        summary: {type: object}
+    template: |
+      角色：极其严谨的事实核查员。你只能使用下面提供的文献原文，禁止使用你自己的知识。
+      【待核查段落】（已按句编号，引用以 [@citekey] 标注）
+      {{sentences}}
+      【引用文献原文】（每篇按段落编号给出全文或相关章节；无全文时只提供摘要，并注明“仅摘要”）
+      {{sources}}
+      步骤：
+      1. 将段落拆分为原子断言（每条只含一个可核查的事实），标注其句号和所附引用；
+      2. 对每条断言，在其所引文献中查找依据，判定为：strong 强匹配 / partial 部分匹配 / none 不匹配或无依据 / undetermined 无法判断（仅摘要或原文不完整）/ na 作者观点；
+      3. 每条输出：sentence, claim, citekey, verdict, quote（逐字引用；找不到写“未找到”）, location（段落编号）, note（差异说明）, suggestion（修改建议）；
+      4. summary 汇总各等级数量。
+      注意：若断言属于原始研究发现，却引用了综述，请建议改引原始研究。
+      输出 JSON：{"claims": [...], "summary": {...}}。
+
+  P20:
+    name: 配图规划
+    version: 1.0.0
+    stage: 5
+    min_level: L1
+    output: markdown
+    temperature: 0.3
+    params: [reference_figures, outline]
+    template: |
+      参照综述：{{reference_figures}}
+      我的大纲：{{outline}}
+      1. 分析参照综述的配图结构：每幅图的类型（机制示意、时间轴、证据汇总表、概念框架等）、位置和叙事作用；
+      2. 为我的综述规划 2–4 幅图：每幅图的目的、所在章节、包含的元素（分子、细胞、器官、干预）、依据的证据卡 ID；
+      3. 给出图注要点（图注正文由我撰写）；
+      4. 提醒哪些元素如改编自已发表图片需要获得版权许可。
+
+  P21:
+    name: AI 使用声明起草
+    version: 1.0.0
+    stage: 6
+    min_level: L0
+    output: markdown
+    temperature: 0
+    params: [usage_summary, venue, language]
+    template: |
+      以下是本项目的 AI 使用日志摘要（由平台自动汇总）：
+      {{usage_summary}}
+      请根据 {{venue}} 的要求起草一段 AI 使用声明（{{language}}），说明：使用了哪些工具、用于哪些环节、人工如何核查、作者对全部内容负责。
+      只描述日志中出现的使用方式，不要夸大或遗漏。
+
+  LANG:
+    name: 语言修改建议（修订模式）
+    version: 1.0.0
+    stage: 5
+    min_level: L3
+    output: json
+    temperature: 0
+    params: [language, sentences]
+    changelog: "平台内部 Prompt，对应 E5；只对学生已写好的句子提出逐条可接受/拒绝的修改"
+    schema:
+      type: object
+      required: [suggestions]
+      properties:
+        suggestions:
+          type: array
+          items:
+            type: object
+            required: [sentence, original, revised, reason]
+            properties:
+              sentence: {type: integer}
+              original: {type: string}
+              revised: {type: string}
+              reason: {type: string}
+    template: |
+      以下是研究生本人撰写的段落（{{language}}，句子已编号）：
+      {{sentences}}
+      请只对语言表达提出修改建议（语法、用词、学术语气、衔接词），不得增加新的事实、数据或引用，不得改变论点；每条建议只针对一个句子中的一处片段。
+      输出 JSON：{"suggestions": [{"sentence", "original"（原句中的原样片段）, "revised", "reason"}]}。

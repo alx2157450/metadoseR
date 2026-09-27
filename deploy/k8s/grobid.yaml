@@ -1,0 +1,26 @@
+# 可选：PDF 解析服务（GROBID，Apache-2.0，CPU 可运行）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grobid
+  namespace: reviewdesk
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: grobid } }
+  template:
+    metadata: { labels: { app: grobid } }
+    spec:
+      containers:
+        - name: grobid
+          image: lfoppiano/grobid:0.8.1
+          ports: [{ containerPort: 8070 }]
+          resources: { requests: { cpu: 500m, memory: 2Gi }, limits: { memory: 4Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grobid
+  namespace: reviewdesk
+spec:
+  selector: { app: grobid }
+  ports: [{ port: 8070, targetPort: 8070 }]

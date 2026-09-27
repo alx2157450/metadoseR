@@ -1,0 +1,100 @@
+# 课题组服务器版（PostgreSQL + S3 对象存储 + 独立 worker）：实验室 / 科室内网部署，数据不出内网（规范 9.1）
+#   cp deploy/.env.example deploy/.env && vi deploy/.env       # 修改密钥与密码
+#   docker compose -f deploy/docker-compose.server.yml --env-file deploy/.env up -d
+#   可选：--profile grobid（PDF 解析） --profile gpu（vLLM 本地模型，需 NVIDIA GPU）
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: reviewdesk
+      POSTGRES_USER: reviewdesk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reviewdesk"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # S3 兼容对象存储：SeaweedFS（Apache-2.0）。也可换成 MinIO 或云厂商 S3，只需修改 REVIEWDESK_S3_* 变量。
+  s3:
+    image: chrislusf/seaweedfs:latest
+    command: ["server", "-dir=/data", "-s3", "-s3.config=/etc/seaweedfs/s3.json"]
+    configs:
+      - source: s3conf
+        target: /etc/seaweedfs/s3.json
+    volumes:
+      - objects:/data
+    restart: unless-stopped
+
+  app: &app
+    image: reviewdesk:latest
+    build: ..
+    depends_on:
+      postgres: { condition: service_healthy }
+      s3: { condition: service_started }
+    environment: &env
+      REVIEWDESK_PROFILE: server
+      REVIEWDESK_DATABASE_URL: postgresql+psycopg://reviewdesk:${POSTGRES_PASSWORD}@postgres:5432/reviewdesk
+      REVIEWDESK_STORAGE_BACKEND: s3
+      REVIEWDESK_S3_ENDPOINT: http://s3:8333
+      REVIEWDESK_S3_BUCKET: reviewdesk
+      REVIEWDESK_S3_ACCESS_KEY: ${S3_ACCESS_KEY:-reviewdesk}
+      REVIEWDESK_S3_SECRET_KEY: ${S3_SECRET_KEY:?请在 .env 中设置 S3_SECRET_KEY}
+      REVIEWDESK_WORKER_MODE: external
+      REVIEWDESK_SECRET_KEY: ${REVIEWDESK_SECRET_KEY:?请在 .env 中设置 REVIEWDESK_SECRET_KEY（至少 32 个字符）}
+      REVIEWDESK_BOOTSTRAP_ADMIN_EMAIL: ${REVIEWDESK_BOOTSTRAP_ADMIN_EMAIL:-admin@lab.local}
+      REVIEWDESK_BOOTSTRAP_ADMIN_PASSWORD: ${REVIEWDESK_BOOTSTRAP_ADMIN_PASSWORD:?请在 .env 中设置初始管理员密码}
+      REVIEWDESK_DEFAULT_PROVIDER: ${REVIEWDESK_DEFAULT_PROVIDER:-rules}
+      REVIEWDESK_OPENAI_BASE_URL: ${REVIEWDESK_OPENAI_BASE_URL:-}
+      REVIEWDESK_OPENAI_API_KEY: ${REVIEWDESK_OPENAI_API_KEY:-}
+      REVIEWDESK_OPENAI_MODEL: ${REVIEWDESK_OPENAI_MODEL:-deepseek-chat}
+      REVIEWDESK_OLLAMA_BASE_URL: ${REVIEWDESK_LOCAL_LLM_URL:-}
+      REVIEWDESK_OLLAMA_MODEL: ${REVIEWDESK_LOCAL_LLM_MODEL:-}
+      REVIEWDESK_GROBID_URL: ${REVIEWDESK_GROBID_URL:-}
+      REVIEWDESK_NCBI_API_KEY: ${REVIEWDESK_NCBI_API_KEY:-}
+      REVIEWDESK_NCBI_EMAIL: ${REVIEWDESK_NCBI_EMAIL:-}
+      REVIEWDESK_CROSSREF_MAILTO: ${REVIEWDESK_CROSSREF_MAILTO:-}
+      REVIEWDESK_UNPAYWALL_EMAIL: ${REVIEWDESK_UNPAYWALL_EMAIL:-}
+      REVIEWDESK_OPENALEX_API_KEY: ${REVIEWDESK_OPENALEX_API_KEY:-}
+      REVIEWDESK_OFFLINE: ${REVIEWDESK_OFFLINE:-false}
+    ports:
+      - "${HTTP_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    command: ["reviewdesk", "worker"]
+    ports: []
+    healthcheck:
+      disable: true
+
+  grobid:
+    profiles: ["grobid"]
+    image: lfoppiano/grobid:0.8.1
+    restart: unless-stopped
+
+  vllm:
+    profiles: ["gpu"]
+    image: vllm/vllm-openai:latest
+    command: ["--model", "${VLLM_MODEL:-Qwen/Qwen2.5-32B-Instruct-AWQ}", "--max-model-len", "32768"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+    volumes:
+      - hf:/root/.cache/huggingface
+    restart: unless-stopped
+
+configs:
+  s3conf:
+    content: |
+      {"identities": [{"name": "reviewdesk",
+        "credentials": [{"accessKey": "${S3_ACCESS_KEY:-reviewdesk}", "secretKey": "${S3_SECRET_KEY}"}],
+        "actions": ["Admin", "Read", "Write", "List", "Tagging"]}]}
+
+volumes:
+  pgdata:
+  objects:
+  hf:

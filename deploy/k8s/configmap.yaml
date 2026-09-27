@@ -1,0 +1,19 @@
+# 云端版（规范 9.1）：托管 PostgreSQL + S3 兼容对象存储；应用与 worker 可水平扩展。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reviewdesk-config
+  namespace: reviewdesk
+data:
+  REVIEWDESK_PROFILE: cloud
+  REVIEWDESK_STORAGE_BACKEND: s3
+  REVIEWDESK_S3_BUCKET: reviewdesk
+  REVIEWDESK_S3_REGION: ap-southeast-1
+  REVIEWDESK_WORKER_MODE: external
+  REVIEWDESK_DEFAULT_PROVIDER: cloud
+  REVIEWDESK_OPENAI_BASE_URL: https://api.deepseek.com/v1
+  REVIEWDESK_OPENAI_MODEL: deepseek-chat
+  # 集群内推理服务（可选），“数据不外发”项目会路由到这里
+  REVIEWDESK_OLLAMA_BASE_URL: ""
+  REVIEWDESK_GROBID_URL: http://grobid.reviewdesk.svc:8070
+  REVIEWDESK_CORS_ORIGINS: '["https://review.example.edu"]'
