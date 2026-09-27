@@ -67,7 +67,7 @@ def decrypt_secret(value: str) -> str:
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     s = get_settings()
     auth = request.headers.get("authorization", "")
-    token = auth[7:] if auth.lower().startswith("bearer ") else request.query_params.get("token")
+    token = auth[7:] if auth.lower().startswith("bearer ") else None
     if token:
         try:
             payload = jwt.decode(token, s.secret_key, algorithms=["HS256"])

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import random
+import re
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -427,7 +429,8 @@ async def upload_fulltext(rid: int, file: UploadFile = File(...), ctx: ProjectCt
     paras, source = parse_upload(file.filename or "", data)
     if not paras:
         raise HTTPException(422, "未能解析出任何段落")
-    key = f"{ctx.project.id}/fulltext/{r.id}/{ctx.user.id}/{file.filename}"
+    safe = re.sub(r"[^\w.\-]+", "_", Path(file.filename or "upload").name)[:120]
+    key = f"{ctx.project.id}/fulltext/{r.id}/{ctx.user.id}/{safe}"
     get_storage().put(key, data)
     ft = ctx.db.scalar(select(FullText).where(FullText.record_id == r.id))
     if ft:

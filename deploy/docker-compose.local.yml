@@ -1,0 +1,37 @@
+# 单机版：学生个人电脑，可完全离线（规范 9.1）
+#   docker compose -f deploy/docker-compose.local.yml up -d        → http://localhost:8000
+#   docker compose -f deploy/docker-compose.local.yml --profile ollama up -d   → 同时启动本机 Ollama
+# 数据保存在 Docker 卷 reviewdesk-data（SQLite + 本地文件夹）；可随时在界面中“导出项目包”发给导师或备份。
+services:
+  app:
+    image: reviewdesk:latest
+    build: ..
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      REVIEWDESK_PROFILE: local
+      # 云端 API（可选）：DeepSeek / 通义千问 / OpenAI 等 OpenAI 兼容接口
+      REVIEWDESK_OPENAI_BASE_URL: ${REVIEWDESK_OPENAI_BASE_URL:-}
+      REVIEWDESK_OPENAI_API_KEY: ${REVIEWDESK_OPENAI_API_KEY:-}
+      REVIEWDESK_OPENAI_MODEL: ${REVIEWDESK_OPENAI_MODEL:-deepseek-chat}
+      # 本机 Ollama（--profile ollama 时生效）
+      REVIEWDESK_OLLAMA_BASE_URL: ${REVIEWDESK_OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      REVIEWDESK_OLLAMA_MODEL: ${REVIEWDESK_OLLAMA_MODEL:-qwen2.5:14b}
+      REVIEWDESK_DEFAULT_PROVIDER: ${REVIEWDESK_DEFAULT_PROVIDER:-rules}
+      REVIEWDESK_NCBI_API_KEY: ${REVIEWDESK_NCBI_API_KEY:-}
+      REVIEWDESK_NCBI_EMAIL: ${REVIEWDESK_NCBI_EMAIL:-}
+      REVIEWDESK_OFFLINE: ${REVIEWDESK_OFFLINE:-false}
+    volumes:
+      - reviewdesk-data:/data
+    restart: unless-stopped
+
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  reviewdesk-data:
+  ollama:

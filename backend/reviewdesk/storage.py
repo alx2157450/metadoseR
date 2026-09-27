@@ -40,6 +40,7 @@ class LocalStorage:
 class S3Storage:  # pragma: no cover - 需要 S3 / MinIO 服务
     def __init__(self):
         import boto3
+        from botocore.config import Config
 
         s = get_settings()
         self.bucket = s.s3_bucket
@@ -49,6 +50,8 @@ class S3Storage:  # pragma: no cover - 需要 S3 / MinIO 服务
             aws_access_key_id=s.s3_access_key,
             aws_secret_access_key=s.s3_secret_key,
             region_name=s.s3_region,
+            # 自建 S3（SeaweedFS / MinIO）需要 path-style 寻址
+            config=Config(s3={"addressing_style": "path"}),
         )
         try:
             self.client.head_bucket(Bucket=self.bucket)

@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewdesk-app
+  namespace: reviewdesk
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: reviewdesk, role: web }
+  template:
+    metadata:
+      labels: { app: reviewdesk, role: web }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: app
+          image: ghcr.io/your-org/reviewdesk:0.1.0
+          ports: [{ containerPort: 8000 }]
+          envFrom:
+            - configMapRef: { name: reviewdesk-config }
+            - secretRef: { name: reviewdesk-secrets }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "2", memory: 2Gi }
+          volumeMounts: [{ name: tmp, mountPath: /data }]
+      volumes: [{ name: tmp, emptyDir: {} }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewdesk-worker
+  namespace: reviewdesk
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: reviewdesk, role: worker }
+  template:
+    metadata:
+      labels: { app: reviewdesk, role: worker }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: worker
+          image: ghcr.io/your-org/reviewdesk:0.1.0
+          command: ["reviewdesk", "worker"]
+          envFrom:
+            - configMapRef: { name: reviewdesk-config }
+            - secretRef: { name: reviewdesk-secrets }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "2", memory: 2Gi }
+          volumeMounts: [{ name: tmp, mountPath: /data }]
+      volumes: [{ name: tmp, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviewdesk
+  namespace: reviewdesk
+spec:
+  selector: { app: reviewdesk, role: web }
+  ports: [{ port: 80, targetPort: 8000 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reviewdesk
+  namespace: reviewdesk
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+spec:
+  ingressClassName: nginx
+  tls: [{ hosts: [review.example.edu], secretName: reviewdesk-tls }]
+  rules:
+    - host: review.example.edu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: reviewdesk, port: { number: 80 } } }

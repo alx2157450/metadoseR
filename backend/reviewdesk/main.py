@@ -35,6 +35,8 @@ def bootstrap() -> None:
             db.commit()
             if s.profile != "local" and s.bootstrap_admin_password == "admin":
                 log.warning("已使用默认管理员密码创建账号，请立即修改（REVIEWDESK_BOOTSTRAP_ADMIN_PASSWORD）")
+        if s.resolved_single_user:
+            log.warning("单用户免登录模式：请只在本机访问（监听 127.0.0.1），不要把端口暴露到网络")
         if s.profile != "local" and s.secret_key.startswith("change-me-in-production"):
             log.warning("REVIEWDESK_SECRET_KEY 仍为默认值，服务器 / 云端部署必须修改")
     finally:
